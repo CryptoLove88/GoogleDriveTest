@@ -193,13 +193,19 @@ def upload_file():
         flash('No file selected')
         return redirect(url_for('dashboard'))
     
+    # Get the folder ID from the form, default to 'root' if not provided
+    folder_id = request.form.get('folder_id', 'root')
+    
     # Save the file temporarily
     temp_path = os.path.join('temp', file.filename)
     os.makedirs('temp', exist_ok=True)
     file.save(temp_path)
     
     service = get_google_drive_service()
-    file_metadata = {'name': file.filename}
+    file_metadata = {
+        'name': file.filename,
+        'parents': [folder_id]  # Set the parent folder
+    }
     media = MediaFileUpload(temp_path, resumable=True)
     
     try:
@@ -215,7 +221,8 @@ def upload_file():
         # Clean up the temporary file
         os.remove(temp_path)
     
-    return redirect(url_for('dashboard'))
+    # Redirect back to the current folder
+    return redirect(url_for('dashboard', folder_id=folder_id))
 
 @app.route('/download/<file_id>')
 def download_file(file_id):
