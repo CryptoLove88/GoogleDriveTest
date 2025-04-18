@@ -9,6 +9,7 @@ from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 from datetime import datetime
 import io
 from config.config import config
+from services.google_auth import GoogleAuth
 
 # Allow HTTP traffic for local development
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
@@ -19,27 +20,19 @@ app.config['SESSION_TYPE'] = 'filesystem'
 
 # Get the appropriate config class based on environment
 config_class = config['development']  # or 'production' or 'testing'
-
-# If modifying these scopes, delete the file token.pickle.
-SCOPES = config_class.GOOGLE_DRIVE_SCOPES
+google_auth = GoogleAuth(config_class)
 
 def get_google_drive_service():
     if 'token' not in session:
         return None
         
     try:
-        creds = Credentials.from_authorized_user_info(session['token'], SCOPES)
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-            session['token'] = {
-                'token': creds.token,
-                'refresh_token': creds.refresh_token,
-                'token_uri': creds.token_uri,
-                'client_id': creds.client_id,
-                'client_secret': creds.client_secret,
-                'scopes': creds.scopes
-            }
-        return build('drive', 'v3', credentials=creds)
+        credentials = google_auth.create_credentials_from_token(session['token'])
+        if credentials and credentials.expired and credentials.refresh_token:
+            new_token = google_auth.refresh_credentials(credentials)
+            if new_token:
+                session['token'] = new_token
+        return google_auth.get_drive_service(credentials)
     except Exception as e:
         print(f"Error in get_google_drive_service: {str(e)}")
         session.clear()
@@ -53,22 +46,8 @@ def index():
 
 @app.route('/login')
 def login():
-    flow = Flow.from_client_config(
-        {
-            "web": {
-                "client_id": config_class.GOOGLE_CLIENT_ID,
-                "client_secret": config_class.GOOGLE_CLIENT_SECRET,
-                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                "token_uri": "https://oauth2.googleapis.com/token",
-                "redirect_uri": config_class.GOOGLE_REDIRECT_URI,
-            }
-        },
-        scopes=SCOPES
-    )
-    flow.redirect_uri = url_for('oauth2callback', _external=True)
-    authorization_url, state = flow.authorization_url(
-        access_type='offline',
-        include_granted_scopes='true')
+    # Use the redirect URI from the config
+    authorization_url, state = google_auth.get_authorization_url()
     session['state'] = state
     return redirect(authorization_url)
 
@@ -79,26 +58,10 @@ def oauth2callback():
         
     state = session['state']
     try:
-        flow = Flow.from_client_config(
-            {
-                "web": {
-                    "client_id": config_class.GOOGLE_CLIENT_ID,
-                    "client_secret": config_class.GOOGLE_CLIENT_SECRET,
-                    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                    "token_uri": "https://oauth2.googleapis.com/token",
-                    "redirect_uri": config_class.GOOGLE_REDIRECT_URI,
-                }
-            },
-            scopes=SCOPES,
-            state=state
-        )
-        flow.redirect_uri = url_for('oauth2callback', _external=True)
+        # Use the redirect URI from the config
+        credentials = google_auth.get_credentials_from_callback(request.url, state=state)
         
-        authorization_response = request.url
-        flow.fetch_token(authorization_response=authorization_response)
-        credentials = flow.credentials
-        
-        # Store all required fields for token refresh
+        # Store token information in session
         session['token'] = {
             'token': credentials.token,
             'refresh_token': credentials.refresh_token,
