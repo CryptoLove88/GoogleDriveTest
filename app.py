@@ -1,6 +1,6 @@
 import os
 import pickle
-from flask import Flask, render_template, request, redirect, url_for, session, flash, send_file
+from flask import Flask, render_template, request, redirect, url_for, session, flash, send_file, Response
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
@@ -17,37 +17,31 @@ app.secret_key = os.urandom(24)
 app.config['SESSION_TYPE'] = 'filesystem'
 
 # If modifying these scopes, delete the file token.pickle.
-SCOPES = ['https://www.googleapis.com/auth/drive.file',
-          'https://www.googleapis.com/auth/drive.metadata.readonly']
+SCOPES = ['https://www.googleapis.com/auth/drive',
+          'https://www.googleapis.com/auth/drive.metadata.readonly',
+          'https://www.googleapis.com/auth/drive.file']
 
 def get_google_drive_service():
-    creds = None
-    if 'token' in session:
+    if 'token' not in session:
+        return None
+        
+    try:
         creds = Credentials.from_authorized_user_info(session['token'], SCOPES)
-    
-    if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
-        else:
-            flow = Flow.from_client_secrets_file(
-                'credentials.json', SCOPES)
-            flow.redirect_uri = url_for('oauth2callback', _external=True)
-            authorization_url, state = flow.authorization_url(
-                access_type='offline',
-                include_granted_scopes='true')
-            session['state'] = state
-            return redirect(authorization_url)
-        
-        session['token'] = {
-            'token': creds.token,
-            'refresh_token': creds.refresh_token,
-            'token_uri': creds.token_uri,
-            'client_id': creds.client_id,
-            'client_secret': creds.client_secret,
-            'scopes': creds.scopes
-        }
-    
-    return build('drive', 'v3', credentials=creds)
+            session['token'] = {
+                'token': creds.token,
+                'refresh_token': creds.refresh_token,
+                'token_uri': creds.token_uri,
+                'client_id': creds.client_id,
+                'client_secret': creds.client_secret,
+                'scopes': creds.scopes
+            }
+        return build('drive', 'v3', credentials=creds)
+    except Exception as e:
+        print(f"Error in get_google_drive_service: {str(e)}")
+        session.clear()
+        return None
 
 @app.route('/')
 def index():
@@ -68,25 +62,35 @@ def login():
 
 @app.route('/oauth2callback')
 def oauth2callback():
+    if 'state' not in session:
+        return redirect(url_for('login'))
+        
     state = session['state']
-    flow = Flow.from_client_secrets_file(
-        'credentials.json', SCOPES, state=state)
-    flow.redirect_uri = url_for('oauth2callback', _external=True)
-    
-    authorization_response = request.url
-    flow.fetch_token(authorization_response=authorization_response)
-    credentials = flow.credentials
-    
-    session['token'] = {
-        'token': credentials.token,
-        'refresh_token': credentials.refresh_token,
-        'token_uri': credentials.token_uri,
-        'client_id': credentials.client_id,
-        'client_secret': credentials.client_secret,
-        'scopes': credentials.scopes
-    }
-    
-    return redirect(url_for('dashboard'))
+    try:
+        flow = Flow.from_client_secrets_file(
+            'credentials.json', SCOPES, state=state)
+        flow.redirect_uri = url_for('oauth2callback', _external=True)
+        
+        authorization_response = request.url
+        flow.fetch_token(authorization_response=authorization_response)
+        credentials = flow.credentials
+        
+        # Store all required fields for token refresh
+        session['token'] = {
+            'token': credentials.token,
+            'refresh_token': credentials.refresh_token,
+            'token_uri': credentials.token_uri,
+            'client_id': credentials.client_id,
+            'client_secret': credentials.client_secret,
+            'scopes': credentials.scopes,
+            'expiry': credentials.expiry.isoformat() if credentials.expiry else None
+        }
+        
+        return redirect(url_for('dashboard'))
+    except Exception as e:
+        print(f"Error in oauth2callback: {str(e)}")
+        session.clear()
+        return redirect(url_for('login'))
 
 @app.route('/logout')
 def logout():
@@ -99,25 +103,34 @@ def dashboard():
         return redirect(url_for('login'))
     
     service = get_google_drive_service()
-    results = service.files().list(
-        pageSize=10,
-        fields="nextPageToken, files(id, name, mimeType, modifiedTime)"
-    ).execute()
-    
-    files = results.get('files', [])
-    file_list = []
-    
-    for file in files:
-        modified_time = datetime.fromisoformat(file['modifiedTime'].replace('Z', '+00:00'))
-        file_info = {
-            'id': file['id'],
-            'name': file['name'],
-            'type': file['mimeType'],
-            'modified': modified_time.strftime('%Y-%m-%d %H:%M:%S')
-        }
-        file_list.append(file_info)
-    
-    return render_template('dashboard.html', files=file_list)
+    if service is None:
+        session.clear()
+        return redirect(url_for('login'))
+        
+    try:
+        results = service.files().list(
+            pageSize=10,
+            fields="nextPageToken, files(id, name, mimeType, modifiedTime)"
+        ).execute()
+        
+        files = results.get('files', [])
+        file_list = []
+        
+        for file in files:
+            modified_time = datetime.fromisoformat(file['modifiedTime'].replace('Z', '+00:00'))
+            file_info = {
+                'id': file['id'],
+                'name': file['name'],
+                'type': file['mimeType'],
+                'modified': modified_time.strftime('%Y-%m-%d %H:%M:%S')
+            }
+            file_list.append(file_info)
+        
+        return render_template('dashboard.html', files=file_list)
+    except Exception as e:
+        print(f"Error in dashboard: {str(e)}")
+        session.clear()
+        return redirect(url_for('login'))
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
