@@ -98,7 +98,8 @@ def logout():
     return redirect(url_for('index'))
 
 @app.route('/dashboard')
-def dashboard():
+@app.route('/dashboard/<folder_id>')
+def dashboard(folder_id='root'):
     if 'token' not in session:
         return redirect(url_for('login'))
     
@@ -108,9 +109,48 @@ def dashboard():
         return redirect(url_for('login'))
         
     try:
+        # Get the current folder name if not root
+        current_folder_name = "Root"
+        if folder_id != 'root':
+            folder = service.files().get(
+                fileId=folder_id,
+                fields="name"
+            ).execute()
+            current_folder_name = folder.get('name', 'Unknown Folder')
+
+        # Build the path for breadcrumb navigation
+        path = []
+        if folder_id != 'root':
+            current_id = folder_id
+            while current_id != 'root':
+                try:
+                    file = service.files().get(
+                        fileId=current_id,
+                        fields="id, name, parents"
+                    ).execute()
+                    
+                    path.insert(0, {
+                        'id': file['id'],
+                        'name': file['name']
+                    })
+                    
+                    # Get the parent folder ID
+                    parents = file.get('parents', [])
+                    if parents:
+                        current_id = parents[0]
+                    else:
+                        break
+                except Exception as e:
+                    print(f"Error getting parent folder: {str(e)}")
+                    break
+
+        # List files and folders in the current directory
+        query = f"'{folder_id}' in parents and trashed = false"
         results = service.files().list(
-            pageSize=10,
-            fields="nextPageToken, files(id, name, mimeType, modifiedTime)"
+            q=query,
+            pageSize=50,
+            fields="nextPageToken, files(id, name, mimeType, modifiedTime)",
+            orderBy="folder,name"
         ).execute()
         
         files = results.get('files', [])
@@ -118,15 +158,22 @@ def dashboard():
         
         for file in files:
             modified_time = datetime.fromisoformat(file['modifiedTime'].replace('Z', '+00:00'))
+            is_folder = file['mimeType'] == 'application/vnd.google-apps.folder'
+            
             file_info = {
                 'id': file['id'],
                 'name': file['name'],
                 'type': file['mimeType'],
-                'modified': modified_time.strftime('%Y-%m-%d %H:%M:%S')
+                'modified': modified_time.strftime('%Y-%m-%d %H:%M:%S'),
+                'is_folder': is_folder
             }
             file_list.append(file_info)
         
-        return render_template('dashboard.html', files=file_list)
+        return render_template('dashboard.html', 
+                             files=file_list, 
+                             current_folder_id=folder_id,
+                             current_folder_name=current_folder_name,
+                             path=path)
     except Exception as e:
         print(f"Error in dashboard: {str(e)}")
         session.clear()
