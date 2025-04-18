@@ -8,6 +8,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 from datetime import datetime
 import io
+from config.config import config
 
 # Allow HTTP traffic for local development
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
@@ -16,10 +17,11 @@ app = Flask(__name__)
 app.secret_key = os.urandom(24)
 app.config['SESSION_TYPE'] = 'filesystem'
 
+# Get the appropriate config class based on environment
+config_class = config['development']  # or 'production' or 'testing'
+
 # If modifying these scopes, delete the file token.pickle.
-SCOPES = ['https://www.googleapis.com/auth/drive',
-          'https://www.googleapis.com/auth/drive.metadata.readonly',
-          'https://www.googleapis.com/auth/drive.file']
+SCOPES = config_class.GOOGLE_DRIVE_SCOPES
 
 def get_google_drive_service():
     if 'token' not in session:
@@ -51,8 +53,18 @@ def index():
 
 @app.route('/login')
 def login():
-    flow = Flow.from_client_secrets_file(
-        'credentials.json', SCOPES)
+    flow = Flow.from_client_config(
+        {
+            "web": {
+                "client_id": config_class.GOOGLE_CLIENT_ID,
+                "client_secret": config_class.GOOGLE_CLIENT_SECRET,
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "redirect_uri": config_class.GOOGLE_REDIRECT_URI,
+            }
+        },
+        scopes=SCOPES
+    )
     flow.redirect_uri = url_for('oauth2callback', _external=True)
     authorization_url, state = flow.authorization_url(
         access_type='offline',
@@ -67,8 +79,19 @@ def oauth2callback():
         
     state = session['state']
     try:
-        flow = Flow.from_client_secrets_file(
-            'credentials.json', SCOPES, state=state)
+        flow = Flow.from_client_config(
+            {
+                "web": {
+                    "client_id": config_class.GOOGLE_CLIENT_ID,
+                    "client_secret": config_class.GOOGLE_CLIENT_SECRET,
+                    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                    "token_uri": "https://oauth2.googleapis.com/token",
+                    "redirect_uri": config_class.GOOGLE_REDIRECT_URI,
+                }
+            },
+            scopes=SCOPES,
+            state=state
+        )
         flow.redirect_uri = url_for('oauth2callback', _external=True)
         
         authorization_response = request.url
