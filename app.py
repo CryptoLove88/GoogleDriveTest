@@ -10,6 +10,7 @@ from datetime import datetime
 import io
 from config.config import config
 from services.google_auth import GoogleAuth
+from services.google_drive import GoogleDrive
 
 # Allow HTTP traffic for local development
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
@@ -22,7 +23,7 @@ app.config['SESSION_TYPE'] = 'filesystem'
 config_class = config['development']  # or 'production' or 'testing'
 google_auth = GoogleAuth(config_class)
 
-def get_google_drive_service():
+def get_google_drive():
     if 'token' not in session:
         return None
         
@@ -32,9 +33,10 @@ def get_google_drive_service():
             new_token = google_auth.refresh_credentials(credentials)
             if new_token:
                 session['token'] = new_token
-        return google_auth.get_drive_service(credentials)
+        service = google_auth.get_drive_service(credentials)
+        return GoogleDrive(service)
     except Exception as e:
-        print(f"Error in get_google_drive_service: {str(e)}")
+        print(f"Error in get_google_drive: {str(e)}")
         session.clear()
         return None
 
@@ -89,74 +91,23 @@ def dashboard(folder_id='root'):
     if 'token' not in session:
         return redirect(url_for('login'))
     
-    service = get_google_drive_service()
-    if service is None:
+    drive = get_google_drive()
+    if drive is None:
         session.clear()
         return redirect(url_for('login'))
         
     try:
-        # Get the current folder name if not root
-        current_folder_name = "Root"
-        if folder_id != 'root':
-            folder = service.files().get(
-                fileId=folder_id,
-                fields="name"
-            ).execute()
-            current_folder_name = folder.get('name', 'Unknown Folder')
-
-        # Build the path for breadcrumb navigation
-        path = []
-        if folder_id != 'root':
-            current_id = folder_id
-            while current_id != 'root':
-                try:
-                    file = service.files().get(
-                        fileId=current_id,
-                        fields="id, name, parents"
-                    ).execute()
-                    
-                    path.insert(0, {
-                        'id': file['id'],
-                        'name': file['name']
-                    })
-                    
-                    # Get the parent folder ID
-                    parents = file.get('parents', [])
-                    if parents:
-                        current_id = parents[0]
-                    else:
-                        break
-                except Exception as e:
-                    print(f"Error getting parent folder: {str(e)}")
-                    break
-
-        # List files and folders in the current directory
-        query = f"'{folder_id}' in parents and trashed = false"
-        results = service.files().list(
-            q=query,
-            pageSize=50,
-            fields="nextPageToken, files(id, name, mimeType, modifiedTime)",
-            orderBy="folder,name"
-        ).execute()
+        # Get the current folder name
+        current_folder_name = drive.get_folder_name(folder_id)
         
-        files = results.get('files', [])
-        file_list = []
+        # Get the path for breadcrumb navigation
+        path = drive.get_folder_path(folder_id)
         
-        for file in files:
-            modified_time = datetime.fromisoformat(file['modifiedTime'].replace('Z', '+00:00'))
-            is_folder = file['mimeType'] == 'application/vnd.google-apps.folder'
-            
-            file_info = {
-                'id': file['id'],
-                'name': file['name'],
-                'type': file['mimeType'],
-                'modified': modified_time.strftime('%Y-%m-%d %H:%M:%S'),
-                'is_folder': is_folder
-            }
-            file_list.append(file_info)
+        # List files and folders
+        files = drive.list_files(folder_id)
         
         return render_template('dashboard.html', 
-                             files=file_list, 
+                             files=files, 
                              current_folder_id=folder_id,
                              current_folder_name=current_folder_name,
                              path=path)
@@ -187,19 +138,9 @@ def upload_file():
     os.makedirs('temp', exist_ok=True)
     file.save(temp_path)
     
-    service = get_google_drive_service()
-    file_metadata = {
-        'name': file.filename,
-        'parents': [folder_id]  # Set the parent folder
-    }
-    media = MediaFileUpload(temp_path, resumable=True)
-    
+    drive = get_google_drive()
     try:
-        file = service.files().create(
-            body=file_metadata,
-            media_body=media,
-            fields='id'
-        ).execute()
+        drive.upload_file(temp_path, folder_id)
         flash('File uploaded successfully!')
     except Exception as e:
         flash(f'An error occurred: {str(e)}')
@@ -215,20 +156,13 @@ def download_file(file_id):
     if 'token' not in session:
         return redirect(url_for('login'))
     
-    service = get_google_drive_service()
+    drive = get_google_drive()
     try:
-        request = service.files().get_media(fileId=file_id)
-        file = io.BytesIO()
-        downloader = MediaIoBaseDownload(file, request)
-        done = False
-        while done is False:
-            status, done = downloader.next_chunk()
-        
-        file.seek(0)
+        file = drive.download_file(file_id)
         return send_file(
             file,
             as_attachment=True,
-            download_name=service.files().get(fileId=file_id).execute()['name']
+            download_name=drive.get_file_name(file_id)
         )
     except Exception as e:
         flash(f'An error occurred: {str(e)}')
@@ -239,14 +173,24 @@ def delete_file(file_id):
     if 'token' not in session:
         return redirect(url_for('login'))
     
-    service = get_google_drive_service()
+    drive = get_google_drive()
     try:
-        service.files().delete(fileId=file_id).execute()
+        # Get the parent folder ID before deleting the file
+        file_metadata = drive.service.files().get(
+            fileId=file_id,
+            fields="parents"
+        ).execute()
+        parent_folder_id = file_metadata.get('parents', ['root'])[0]
+        
+        # Delete the file
+        drive.delete_file(file_id)
         flash('File deleted successfully!')
+        
+        # Redirect back to the parent folder
+        return redirect(url_for('dashboard', folder_id=parent_folder_id))
     except Exception as e:
         flash(f'An error occurred: {str(e)}')
-    
-    return redirect(url_for('dashboard'))
+        return redirect(url_for('dashboard'))
 
 if __name__ == '__main__':
     os.makedirs('temp', exist_ok=True)
