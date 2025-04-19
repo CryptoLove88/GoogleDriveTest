@@ -270,26 +270,41 @@ class GoogleDriveFileMetadata(FileMetadata):
             raise FileMetadataError(f"Failed to get parent folder: {str(e)}")
 
 class GoogleDriveService:
-    """Service class that coordinates different Google Drive operations."""
+    """Service class that coordinates different Google Drive operations.
+    This class serves as the main interface for all Google Drive operations,
+    implementing a facade pattern to simplify the interaction with different
+    components (file operations, folder operations, and metadata operations).
+    """
     
     def __init__(self, service):
+        """Initialize the service with Google Drive API service object.
+        
+        Args:
+            service: Google Drive API service instance from googleapiclient.discovery
+        """
         self.file_operation = GoogleDriveFileOperation(service)
         self.folder_operation = GoogleDriveFolderOperation(service)
         self.file_metadata = GoogleDriveFileMetadata(service)
         self.service = service
     
     def list_files(self, folder_id: str = 'root', page_size: int = 50) -> List[FileInfo]:
-        """List files and folders in a directory.
+        """List files and folders in a directory with pagination support.
+        
+        This method queries the Google Drive API with specific parameters to:
+        1. Filter files by parent folder
+        2. Exclude trashed items
+        3. Sort results by folder first, then by name
+        4. Convert timestamps to local datetime format
         
         Args:
             folder_id: ID of the folder to list (default: 'root')
-            page_size: Number of items per page (default: 50)
+            page_size: Number of items to retrieve per page (default: 50)
             
         Returns:
-            List[FileInfo]: List of files and folders
+            List[FileInfo]: List of file/folder information objects
             
         Raises:
-            GoogleDriveError: If operation fails
+            GoogleDriveError: If the API request fails or returns invalid data
         """
         try:
             query = f"'{folder_id}' in parents and trashed = false"
@@ -321,6 +336,15 @@ class GoogleDriveService:
             raise GoogleDriveError(f"Failed to list files: {str(e)}")
     
     def get_folder_name(self, folder_id: str) -> str:
+        """Get the name of a folder by its ID.
+        Provides a simpler interface to folder name retrieval operation.
+        
+        Args:
+            folder_id: The unique identifier of the folder
+            
+        Returns:
+            str: The name of the folder
+        """
         return self.folder_operation.get_name(folder_id)
     
     def get_folder_path(self, folder_id: str) -> List[FolderPath]:
@@ -339,4 +363,4 @@ class GoogleDriveService:
         return self.file_metadata.get_parent(file_id)
     
     def delete_file(self, file_id: str) -> None:
-        self.file_operation.delete(file_id) 
+        self.file_operation.delete(file_id)

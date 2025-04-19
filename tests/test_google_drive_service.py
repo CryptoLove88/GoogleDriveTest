@@ -17,11 +17,29 @@ from services.google_drive_service import (
 )
 
 class TestGoogleDriveFileOperation(unittest.TestCase):
+    """Test suite for Google Drive file operations.
+    
+    Tests the core file operations (upload, download, delete) with:
+    - Success cases with valid inputs
+    - Error cases with invalid inputs
+    - Edge cases like missing files
+    - Mock responses from Google Drive API
+    """
+    
     def setUp(self):
+        """Set up test environment before each test.
+        Creates a mock service to simulate Google Drive API."""
         self.mock_service = Mock()
         self.file_operation = GoogleDriveFileOperation(self.mock_service)
         
     def test_upload_success(self):
+        """Test successful file upload scenario.
+        
+        Verifies:
+        1. File is created in Drive
+        2. Correct file ID is returned
+        3. API is called with correct parameters
+        """
         # Mock the file creation response
         mock_response = {'id': 'test_file_id'}
         self.mock_service.files().create().execute.return_value = mock_response
@@ -41,6 +59,11 @@ class TestGoogleDriveFileOperation(unittest.TestCase):
                 os.remove(test_file_path)
                 
     def test_upload_file_not_found(self):
+        """Test upload with non-existent file.
+        
+        Verifies proper error handling when the local file doesn't exist.
+        Should raise FileOperationError with descriptive message.
+        """
         with self.assertRaises(FileOperationError):
             self.file_operation.upload('nonexistent_file.txt')
             
@@ -63,11 +86,25 @@ class TestGoogleDriveFileOperation(unittest.TestCase):
         self.mock_service.files().delete.assert_called_once_with(fileId='test_file_id')
 
 class TestGoogleDriveFolderOperation(unittest.TestCase):
+    """Test suite for Google Drive folder operations.
+    
+    Tests folder navigation and metadata operations:
+    - Root folder handling
+    - Nested folder path resolution
+    - Error cases for invalid folder IDs
+    """
+    
     def setUp(self):
+        """Set up test environment before each test."""
         self.mock_service = Mock()
         self.folder_operation = GoogleDriveFolderOperation(self.mock_service)
         
     def test_get_name_root(self):
+        """Test getting name of root folder.
+        
+        Verifies special handling of 'root' folder ID,
+        which should return "Root" without API call.
+        """
         result = self.folder_operation.get_name('root')
         self.assertEqual(result, 'Root')
         
@@ -172,4 +209,4 @@ class TestGoogleDriveService(unittest.TestCase):
             mock_delete.assert_called_once_with('test_file_id')
 
 if __name__ == '__main__':
-    unittest.main() 
+    unittest.main()

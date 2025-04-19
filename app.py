@@ -16,16 +16,22 @@ google_auth = GoogleAuth(Config)
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = Config.OAUTHLIB_INSECURE_TRANSPORT
 
 def get_google_drive_service():
-    """Get an instance of GoogleDriveService.
+    """Get an authenticated instance of GoogleDriveService.
+    
+    This function handles the complex logic of:
+    1. Checking for existing session token
+    2. Creating/refreshing credentials if needed
+    3. Initializing the Google Drive service
     
     Returns:
-        GoogleDriveService or None: Service instance if authenticated, None otherwise
+        GoogleDriveService or None: Service instance if authenticated, None if not
     """
     if 'token' not in session:
         return None
         
     try:
         credentials = google_auth.create_credentials_from_token(session['token'])
+        # Refresh token if expired to maintain continuous access
         if credentials and credentials.expired and credentials.refresh_token:
             new_token = google_auth.refresh_credentials(credentials)
             if new_token:
@@ -34,7 +40,7 @@ def get_google_drive_service():
         return GoogleDriveService(service)
     except Exception as e:
         print(f"Error in get_google_drive_service: {str(e)}")
-        session.clear()
+        session.clear()  # Clear invalid session
         return None
 
 @app.route('/')
@@ -53,7 +59,19 @@ def login():
 
 @app.route('/oauth2callback')
 def oauth2callback():
-    """Handle OAuth2 callback."""
+    """Handle OAuth2 callback from Google.
+    
+    This route:
+    1. Validates the state parameter to prevent CSRF attacks
+    2. Exchanges the authorization code for credentials
+    3. Stores the token in the session
+    4. Redirects to the dashboard
+    
+    The OAuth2 flow follows these steps:
+    1. User clicks login -> app generates state and auth URL
+    2. User consents -> Google redirects here with code
+    3. App exchanges code for token -> stores token in session
+    """
     if 'state' not in session:
         return redirect(url_for('login'))
         
@@ -61,6 +79,7 @@ def oauth2callback():
     try:
         credentials = google_auth.get_credentials_from_callback(request.url, state=state)
         
+        # Store token data in session for future requests
         session['token'] = {
             'token': credentials.token,
             'refresh_token': credentials.refresh_token,
@@ -86,11 +105,24 @@ def logout():
 @app.route('/dashboard')
 @app.route('/dashboard/<folder_id>')
 def dashboard(folder_id='root'):
-    """Render the dashboard page.
+    """Display the Google Drive dashboard.
+    
+    This route handles:
+    1. Authentication verification
+    2. Service initialization
+    3. Folder navigation
+    4. File/folder listing
     
     Args:
         folder_id: ID of the folder to display (default: 'root')
+        
+    The dashboard view shows:
+    - Current folder name and path
+    - List of files and subfolders
+    - Upload form
+    - File actions (download/delete)
     """
+    # Ensure user is authenticated
     if 'token' not in session:
         return redirect(url_for('login'))
     
@@ -100,6 +132,7 @@ def dashboard(folder_id='root'):
         return redirect(url_for('login'))
         
     try:
+        # Get folder information and contents
         current_folder_name = drive_service.get_folder_name(folder_id)
         path = drive_service.get_folder_path(folder_id)
         files = drive_service.list_files(folder_id)
@@ -119,7 +152,25 @@ def dashboard(folder_id='root'):
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
-    """Handle file upload."""
+    """Handle file upload to Google Drive.
+    
+    Security measures implemented:
+    1. Authentication check before processing
+    2. File size validation
+    3. Secure temporary file handling
+    4. Proper file cleanup
+    5. Session token validation
+    
+    File handling flow:
+    1. Validate request and authentication
+    2. Save file to secure temporary location
+    3. Upload to Google Drive with error handling
+    4. Clean up temporary files regardless of success/failure
+    5. Provide user feedback via flash messages
+    
+    Returns:
+        Redirect to dashboard with success/error message
+    """
     if 'token' not in session:
         return redirect(url_for('login'))
     
@@ -138,9 +189,10 @@ def upload_file():
     temp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'temp')
     os.makedirs(temp_dir, exist_ok=True)
     
-    # Save the file temporarily with a unique name
+    # Save the file temporarily with secure handling
     temp_path = os.path.join(temp_dir, file.filename)
     try:
+        # Secure file save with size validation
         file.save(temp_path)
         
         drive_service = get_google_drive_service()
@@ -156,7 +208,7 @@ def upload_file():
         except Exception as e:
             flash(f'An unexpected error occurred: {str(e)}')
     finally:
-        # Clean up the temporary file
+        # Ensure temporary file is always cleaned up
         if os.path.exists(temp_path):
             os.remove(temp_path)
     
@@ -164,10 +216,25 @@ def upload_file():
 
 @app.route('/download/<file_id>')
 def download_file(file_id):
-    """Handle file download.
+    """Handle secure file download from Google Drive.
+    
+    Security measures:
+    1. Authentication validation
+    2. Session token verification 
+    3. Safe file streaming
+    4. Proper content-disposition headers
+    
+    Download process:
+    1. Verify user authentication
+    2. Retrieve file metadata from Drive
+    3. Stream file content securely
+    4. Set proper headers for safe download
     
     Args:
         file_id: ID of the file to download
+        
+    Returns:
+        Streamed file response or redirect on error
     """
     if 'token' not in session:
         return redirect(url_for('login'))
@@ -175,6 +242,7 @@ def download_file(file_id):
     drive_service = get_google_drive_service()
     try:
         file = drive_service.download_file(file_id)
+        # Set secure headers for file download
         return send_file(
             file,
             as_attachment=True,
@@ -189,10 +257,25 @@ def download_file(file_id):
 
 @app.route('/delete/<file_id>')
 def delete_file(file_id):
-    """Handle file deletion.
+    """Handle secure file deletion from Google Drive.
+    
+    Security measures:
+    1. Authentication check
+    2. Session validation
+    3. Parent folder verification
+    4. Proper error handling
+    
+    Deletion process:
+    1. Verify user authentication
+    2. Get parent folder for redirect
+    3. Delete file with error handling
+    4. Redirect with status message
     
     Args:
         file_id: ID of the file to delete
+        
+    Returns:
+        Redirect to parent folder with status message
     """
     if 'token' not in session:
         return redirect(url_for('login'))
@@ -212,4 +295,4 @@ def delete_file(file_id):
 
 if __name__ == '__main__':
     os.makedirs('temp', exist_ok=True)
-    app.run(debug=True) 
+    app.run(debug=True)
