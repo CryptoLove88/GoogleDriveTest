@@ -8,8 +8,6 @@ A Flask-based web application that provides a user-friendly interface for managi
 - File upload and download
 - File and folder deletion
 - Folder navigation
-- Modern and responsive UI
-- Error handling and user feedback
 - Comprehensive test coverage
 
 ## Prerequisites
@@ -57,6 +55,28 @@ google-drive-file-manager/
 └── README.md             # Project documentation
 ```
 
+## OAuth 2.0 Credentials Configuration
+1. Create a Google Cloud Project:
+- Go to the Google Cloud Console.
+- Create a new project or select an existing one.
+
+2. Enable the Google Drive API:
+- In the Google Cloud Console, navigate to the "API & Services" dashboard.
+- Click on "Enable APIs and Services."
+- Search for "Google Drive API" and enable it for your project.
+
+3. Create OAuth 2.0 Credentials:
+- In the "APIs & Services" section, go to "Credentials."
+- Click on "Create Credentials" and select "OAuth client ID."
+- Configure the consent screen as required.
+- Choose "Web application" as the application type.
+- Add authorized redirect URIs (e.g., http://localhost:5000/oauth2callback for local development).
+- Click "Create" and note down the Client ID and Client Secret.
+
+4. Download Credentials:
+- After creating the credentials, download the credentials.json file.
+- Place the credentials.json file in the root directory of your project.
+
 ## Running the Application
 
 1. Start the Flask development server:
@@ -103,7 +123,6 @@ python -m unittest tests.test_integration.TestIntegration
 
 The configuration module manages application settings and environment variables. It includes:
 - Base configuration class with default settings
-- Environment-specific configurations (Development, Testing, Production)
 - Environment variable loading and validation
 
 ### Google Drive Service (`services/google_drive_service.py`)
