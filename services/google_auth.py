@@ -2,7 +2,6 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
-from flask import session, url_for
 
 class GoogleAuth:
     """Class to handle Google OAuth2.0 authorization."""

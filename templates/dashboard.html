@@ -29,7 +29,7 @@
                     <a href="{{ url_for('dashboard', folder_id=item.id) }}">{{ item.name }}</a>
                 {% endfor %}
             {% else %}
-                <a href="">My Drive</a>
+                <a href="">{{ current_folder_name }}</a>
             {% endif %}
         </div>
 

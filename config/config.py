@@ -1,13 +1,15 @@
 import os
 import json
-from dotenv import load_dotenv
 
 class Config:
-    """Base configuration class."""
+    """Configuration class."""
     
     # Flask settings
     SECRET_KEY = os.getenv('SECRET_KEY', os.urandom(24))
     SESSION_TYPE = 'filesystem'
+    DEBUG = True
+    TESTING = False
+    OAUTHLIB_INSECURE_TRANSPORT = '1'  # Allow HTTP traffic for local development
     
     # Google Drive API scopes
     GOOGLE_DRIVE_SCOPES = [
@@ -46,29 +48,6 @@ class Config:
         
         if missing_vars:
             raise ValueError(f"Missing required configuration values: {', '.join(missing_vars)}")
-
-class DevelopmentConfig(Config):
-    """Development configuration."""
-    DEBUG = True
-    OAUTHLIB_INSECURE_TRANSPORT = '1'  # Allow HTTP traffic for local development
-
-class TestingConfig(Config):
-    """Testing configuration."""
-    TESTING = True
-    OAUTHLIB_INSECURE_TRANSPORT = '1'
-
-class ProductionConfig(Config):
-    """Production configuration."""
-    DEBUG = False
-    OAUTHLIB_INSECURE_TRANSPORT = '0'  # Disallow HTTP traffic in production
-
-# Configuration dictionary
-config = {
-    'development': DevelopmentConfig,
-    'testing': TestingConfig,
-    'production': ProductionConfig,
-    'default': DevelopmentConfig
-}
 
 # Load credentials
 Config.load_credentials() 

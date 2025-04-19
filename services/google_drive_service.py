@@ -1,10 +1,10 @@
-from typing import Protocol, List, Dict, Optional, Any
-from dataclasses import dataclass
-from datetime import datetime
 import io
 import os
+from typing import List
+from dataclasses import dataclass
+from datetime import datetime
 from abc import ABC, abstractmethod
-from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
+from googleapiclient.http import MediaFileUpload
 
 @dataclass
 class FileInfo:
@@ -183,14 +183,8 @@ class GoogleDriveFileOperation(FileOperation):
     def download(self, file_id: str) -> io.BytesIO:
         try:
             request = self.service.files().get_media(fileId=file_id)
-            file = io.BytesIO()
-            downloader = MediaIoBaseDownload(file, request)
-            
-            done = False
-            while done is False:
-                status, done = downloader.next_chunk()
-            
-            file.seek(0)
+            content = request.execute()
+            file = io.BytesIO(content)
             return file
         except Exception as e:
             raise FileOperationError(f"Failed to download file: {str(e)}")

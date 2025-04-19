@@ -1,27 +1,19 @@
 import os
-import pickle
-from flask import Flask, render_template, request, redirect, url_for, session, flash, send_file, Response
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import Flow
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 from datetime import datetime
-import io
-from config.config import config
+from flask import Flask, render_template, request, redirect, url_for, session, flash, send_file, Response
+from config.config import Config
 from services.google_auth import GoogleAuth
 from services.google_drive_service import GoogleDriveService, GoogleDriveError
-
-# Allow HTTP traffic for local development
-os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
 app.config['SESSION_TYPE'] = 'filesystem'
 
-# Get the appropriate config class based on environment
-config_class = config['development']  # or 'production' or 'testing'
-google_auth = GoogleAuth(config_class)
+# Use the Config class directly
+google_auth = GoogleAuth(Config)
+
+# Allow HTTP traffic for local development
+os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = Config.OAUTHLIB_INSECURE_TRANSPORT
 
 def get_google_drive_service():
     """Get an instance of GoogleDriveService.
